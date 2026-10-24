@@ -32,7 +32,8 @@ public final class WindowPositionHandler {
             for (Objective objective : scoreboard.getObjectives()) {
                 Integer value = valueFor(objective.getCriteria().getName(), payload);
                 if (value != null) {
-                    scoreboard.getOrCreatePlayerScore(player, objective, false).set(value);
+                    // 第三个参数是强制可写标记，只读准则必须传 true 才能更新
+                    scoreboard.getOrCreatePlayerScore(player, objective, true).set(value);
                 }
             }
         });

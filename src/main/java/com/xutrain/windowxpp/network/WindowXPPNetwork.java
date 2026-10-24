@@ -2,6 +2,7 @@ package com.xutrain.windowxpp.network;
 
 import com.xutrain.windowxpp.WindowXPP;
 import com.xutrain.windowxpp.server.ConsoleInputHandler;
+import com.xutrain.windowxpp.server.ConsoleQueryHandler;
 import com.xutrain.windowxpp.server.WindowPositionHandler;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -21,6 +22,16 @@ public final class WindowXPPNetwork {
                 ConsolePayloads.InputResult.TYPE,
                 ConsolePayloads.InputResult.STREAM_CODEC,
                 ConsoleInputHandler::handle
+        );
+        registrar.playToServer(
+                ConsolePayloads.InputAborted.TYPE,
+                ConsolePayloads.InputAborted.STREAM_CODEC,
+                ConsoleInputHandler::handleAbort
+        );
+        registrar.playToServer(
+                ConsolePayloads.QueryResult.TYPE,
+                ConsolePayloads.QueryResult.STREAM_CODEC,
+                ConsoleQueryHandler::handle
         );
         registrar.playToServer(
                 WindowPayloads.Position.TYPE,

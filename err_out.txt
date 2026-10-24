@@ -1,0 +1,30 @@
+> Task :clean
+> Task :neoFormListLibraries FROM-CACHE
+> Task :cacheVersionManifest1.21.1 UP-TO-DATE
+> Task :cacheVersionExecutableClient1.21.1 UP-TO-DATE
+> Task :cacheVersionExecutableServer1.21.1 UP-TO-DATE
+> Task :cacheVersionExtractedServer1.21.1 UP-TO-DATE
+> Task :cacheVersionMappingsClient1.21.1 UP-TO-DATE
+> Task :create1.21.1ClientExtraJar FROM-CACHE
+> Task :selectRawArtifactNg_dummy_ng.net.minecraft_client_1.21.1_client-extra UP-TO-DATE
+> Task :neoFormListTransformLibraries FROM-CACHE
+> Task :neoFormStripClientFinals FROM-CACHE
+> Task :neoFormStripClient FROM-CACHE
+> Task :neoFormStripServer FROM-CACHE
+> Task :neoFormMerge FROM-CACHE
+> Task :neoFormMergeMappings FROM-CACHE
+> Task :neoFormRename FROM-CACHE
+> Task :neoFormDecompile FROM-CACHE
+> Task :neoFormInject FROM-CACHE
+> Task :neoFormPatch FROM-CACHE
+> Task :neoFormPatchUserDev FROM-CACHE
+> Task :neoFormTransformSource FROM-CACHE
+> Task :neoFormRecompile
+> Task :neoFormRecompile FROM-CACHE
+> Task :supplyRawJarForneoFormJoined1.21.1-20240808.144430
+> Task :selectRawArtifactNg_dummy_ng.net.neoforged_neoforge_21.1.234 UP-TO-DATE
+> Task :compileJava
+> Task :compileJava FROM-CACHE
+
+BUILD SUCCESSFUL in 2m 10s
+25 actionable tasks: 2 executed, 16 from cache, 7 up-to-date

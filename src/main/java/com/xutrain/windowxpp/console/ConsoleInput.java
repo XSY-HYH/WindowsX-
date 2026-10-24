@@ -1,8 +1,6 @@
 package com.xutrain.windowxpp.console;
 
 import com.xutrain.windowx.client.multiwindow.CustomWindow;
-import com.xutrain.windowxpp.network.ConsolePayloads;
-import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
 import static org.lwjgl.glfw.GLFW.GLFW_KEY_BACKSPACE;
@@ -13,15 +11,26 @@ import static org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_CONTROL;
 import static org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_SHIFT;
 import static org.lwjgl.glfw.GLFW.GLFW_KEY_RIGHT_CONTROL;
 import static org.lwjgl.glfw.GLFW.GLFW_KEY_RIGHT_SHIFT;
+import static org.lwjgl.glfw.GLFW.GLFW_KEY_V;
+import static org.lwjgl.glfw.GLFW.GLFW_MOD_CONTROL;
+import static org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_LEFT;
+import static org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_RIGHT;
 import static org.lwjgl.glfw.GLFW.GLFW_PRESS;
+import static org.lwjgl.glfw.GLFW.GLFW_RELEASE;
 import static org.lwjgl.glfw.GLFW.GLFW_REPEAT;
+import static org.lwjgl.glfw.GLFW.glfwGetClipboardString;
+import static org.lwjgl.glfw.GLFW.glfwGetCursorPos;
 import static org.lwjgl.glfw.GLFW.glfwGetKey;
+import static org.lwjgl.glfw.GLFW.glfwGetWindowSize;
 import static org.lwjgl.glfw.GLFW.glfwSetCharCallback;
+import static org.lwjgl.glfw.GLFW.glfwSetClipboardString;
+import static org.lwjgl.glfw.GLFW.glfwSetCursorPosCallback;
 import static org.lwjgl.glfw.GLFW.glfwSetKeyCallback;
+import static org.lwjgl.glfw.GLFW.glfwSetMouseButtonCallback;
 import static org.lwjgl.glfw.GLFW.glfwSetScrollCallback;
 import static org.lwjgl.glfw.GLFW.glfwSetWindowCloseCallback;
 
-// 接管控制台窗口的键盘输入，只保留控制台自己需要的按键
+// 接管控制台窗口的输入：键盘用于输入，鼠标用于选中与复制
 public final class ConsoleInput {
     private ConsoleInput() {
     }
@@ -31,30 +40,28 @@ public final class ConsoleInput {
         if (handle == 0L) {
             return;
         }
+        installKeyboard(handle, session);
+        installMouse(handle, window, session);
+        // 标记了 noclose 的窗口忽略关闭请求，系统标题栏的关闭键无法置灰，只能拦下并提示
+        if (session.flags().contains("noclose")) {
+            glfwSetWindowCloseCallback(handle, win -> session.notifyCloseBlocked());
+        }
+    }
+
+    private static void installKeyboard(long handle, ConsoleSession session) {
         glfwSetKeyCallback(handle, (win, key, scancode, action, mods) -> {
             if (action != GLFW_PRESS && action != GLFW_REPEAT) {
                 return;
             }
             if (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) {
-                String objective = session.inputObjective();
-                String value = session.submitInput();
-                if (value == null) {
-                    return;
-                }
-                String trimmed = value.trim();
-                try {
-                    Integer.parseInt(trimmed);
-                    PacketDistributor.sendToServer(
-                            new ConsolePayloads.InputResult(session.id(), trimmed, objective)
-                    );
-                } catch (NumberFormatException e) {
-                    session.print("\u001b[31m需要输入整数\u001b[0m\n");
-                    session.beginInput(objective);
-                }
+                session.commitInput();
             } else if (key == GLFW_KEY_BACKSPACE) {
                 session.eraseCharacter();
             } else if (key == GLFW_KEY_ESCAPE) {
                 session.cancelInput();
+                session.clearSelection();
+            } else if (key == GLFW_KEY_V && (mods & GLFW_MOD_CONTROL) != 0) {
+                session.paste(glfwGetClipboardString(handle));
             }
         });
         glfwSetCharCallback(handle, (win, codepoint) -> {
@@ -78,10 +85,58 @@ public final class ConsoleInput {
                 session.adjustFontSize(yOffset > 0.0 ? 1 : -1);
             }
         });
-        // 标记了 noclose 的窗口忽略关闭请求
-        if (session.flags().contains("noclose")) {
-            glfwSetWindowCloseCallback(handle, win -> {
-            });
-        }
+    }
+
+    private static void installMouse(long handle, CustomWindow window, ConsoleSession session) {
+        glfwSetMouseButtonCallback(handle, (win, button, action, mods) -> {
+            double[] position = cursorPosition(handle, window);
+            if (button == GLFW_MOUSE_BUTTON_LEFT) {
+                if (action == GLFW_PRESS) {
+                    session.beginSelection(
+                            session.cellColumn(position[0]),
+                            session.cellRow(position[1])
+                    );
+                } else if (action == GLFW_RELEASE) {
+                    session.endSelection();
+                }
+            } else if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
+                if (session.hasSelection()) {
+                    String text = session.selectionText();
+                    if (!text.isEmpty()) {
+                        glfwSetClipboardString(handle, text);
+                        session.clearSelection();
+                    }
+                } else {
+                    session.paste(glfwGetClipboardString(handle));
+                }
+            }
+        });
+        glfwSetCursorPosCallback(handle, (win, x, y) -> {
+            if (!session.selecting()) {
+                return;
+            }
+            double[] position = toPixel(handle, window, x, y);
+            session.updateSelection(
+                    session.cellColumn(position[0]),
+                    session.cellRow(position[1])
+            );
+        });
+    }
+
+    private static double[] cursorPosition(long handle, CustomWindow window) {
+        double[] x = new double[1];
+        double[] y = new double[1];
+        glfwGetCursorPos(handle, x, y);
+        return toPixel(handle, window, x[0], y[0]);
+    }
+
+    // 光标坐标是窗口逻辑坐标，字符格按像素算，需要按缩放比例换算
+    private static double[] toPixel(long handle, CustomWindow window, double x, double y) {
+        int[] width = new int[1];
+        int[] height = new int[1];
+        glfwGetWindowSize(handle, width, height);
+        double scaleX = width[0] <= 0 ? 1.0 : (double) window.getWidth() / width[0];
+        double scaleY = height[0] <= 0 ? 1.0 : (double) window.getHeight() / height[0];
+        return new double[]{x * scaleX, y * scaleY};
     }
 }

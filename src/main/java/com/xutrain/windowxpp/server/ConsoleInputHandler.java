@@ -37,6 +37,27 @@ public final class ConsoleInputHandler {
         });
     }
 
+    // 取消时落一条空记录，数据包靠 aborted 标记区分「没回答」和「还在等」
+    public static void handleAbort(ConsolePayloads.InputAborted payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (!(context.player() instanceof ServerPlayer player)) {
+                return;
+            }
+            MinecraftServer server = player.getServer();
+            if (server == null) {
+                return;
+            }
+            CommandStorage storage = server.getCommandStorage();
+            CompoundTag root = storage.get(STORAGE_ID).copy();
+            CompoundTag entry = new CompoundTag();
+            entry.putString("input", "");
+            entry.putInt("length", 0);
+            entry.putBoolean("aborted", true);
+            root.put(payload.consoleId(), entry);
+            storage.set(STORAGE_ID, root);
+        });
+    }
+
     private static void writeStorage(MinecraftServer server, String consoleId, String text) {
         CommandStorage storage = server.getCommandStorage();
         CompoundTag root = storage.get(STORAGE_ID).copy();
@@ -71,6 +92,7 @@ public final class ConsoleInputHandler {
         if (objective.getCriteria().getDefaultRenderType() != ObjectiveCriteria.RenderType.INTEGER) {
             return;
         }
-        scoreboard.getOrCreatePlayerScore(player, objective, false).set(value);
+        // 第三个参数是强制可写标记，传 true 才能覆盖只读准则
+        scoreboard.getOrCreatePlayerScore(player, objective, true).set(value);
     }
 }

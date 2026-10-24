@@ -19,7 +19,10 @@ public final class ConsoleTextures {
             return;
         }
 
-        int[] pixels = renderer.render(buffer, session.inputPending(), session.background());
+        boolean showCursor = session.inputPending() && buffer.cursorVisible();
+        int[] pixels = renderer.render(
+                buffer, showCursor, session.background(), session.palette(), session.selection()
+        );
         ByteBuffer data = session.nextPixelBuffer(width, height);
         // OpenGL 纹理原点在左下，图片原点在左上，逐行翻转
         for (int y = height - 1; y >= 0; y--) {

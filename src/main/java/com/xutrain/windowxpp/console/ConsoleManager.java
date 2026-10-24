@@ -79,6 +79,12 @@ public final class ConsoleManager {
         return result;
     }
 
+    // 某个玩家名下的全部会话，供 list 使用
+    public List<ConsoleSession> allOf(UUID owner) {
+        Map<String, ConsoleSession> owned = sessions.get(owner);
+        return owned == null ? List.of() : new ArrayList<>(owned.values());
+    }
+
     // 主动关闭：注销会话并让 wx 销毁窗口
     public void close(UUID owner, String id) {
         ConsoleSession session = get(owner, id);
@@ -122,6 +128,11 @@ public final class ConsoleManager {
         if (!noShrink && !noGrow) {
             return;
         }
+        // 两个方向都锁死时关掉 resizable，标题栏的最大化按钮才会变灰
+        if (noShrink && noGrow) {
+            GLFW.glfwSetWindowAttrib(handle, GLFW.GLFW_RESIZABLE, GLFW.GLFW_FALSE);
+            return;
+        }
         int currentWidth = window.getWidth();
         int currentHeight = window.getHeight();
         GLFW.glfwSetWindowSizeLimits(
@@ -134,6 +145,8 @@ public final class ConsoleManager {
     }
 
     private void detach(ConsoleSession session) {
+        // 关闭时如果还在等输入，先通知服务端本次询问作废，否则数据包会一直等下去
+        session.cancelInput();
         Map<String, ConsoleSession> owned = sessions.get(session.owner());
         if (owned != null) {
             owned.remove(session.id());

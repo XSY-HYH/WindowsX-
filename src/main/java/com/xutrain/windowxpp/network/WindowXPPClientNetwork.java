@@ -33,6 +33,31 @@ public final class WindowXPPClientNetwork {
                 ConsoleClientHandler::handleClear
         );
         registrar.playToClient(
+                ConsolePayloads.Scroll.TYPE,
+                ConsolePayloads.Scroll.STREAM_CODEC,
+                ConsoleClientHandler::handleScroll
+        );
+        registrar.playToClient(
+                ConsolePayloads.SetRegion.TYPE,
+                ConsolePayloads.SetRegion.STREAM_CODEC,
+                ConsoleClientHandler::handleSetRegion
+        );
+        registrar.playToClient(
+                ConsolePayloads.PrintAt.TYPE,
+                ConsolePayloads.PrintAt.STREAM_CODEC,
+                ConsoleClientHandler::handlePrintAt
+        );
+        registrar.playToClient(
+                ConsolePayloads.SetSize.TYPE,
+                ConsolePayloads.SetSize.STREAM_CODEC,
+                ConsoleClientHandler::handleSetSize
+        );
+        registrar.playToClient(
+                ConsolePayloads.Move.TYPE,
+                ConsolePayloads.Move.STREAM_CODEC,
+                ConsoleClientHandler::handleMove
+        );
+        registrar.playToClient(
                 ConsolePayloads.Remove.TYPE,
                 ConsolePayloads.Remove.STREAM_CODEC,
                 ConsoleClientHandler::handleRemove
@@ -53,9 +78,54 @@ public final class WindowXPPClientNetwork {
                 ConsoleClientHandler::handleSetBackground
         );
         registrar.playToClient(
+                ConsolePayloads.SetFont.TYPE,
+                ConsolePayloads.SetFont.STREAM_CODEC,
+                ConsoleClientHandler::handleSetFont
+        );
+        registrar.playToClient(
+                ConsolePayloads.SetOpacity.TYPE,
+                ConsolePayloads.SetOpacity.STREAM_CODEC,
+                ConsoleClientHandler::handleSetOpacity
+        );
+        registrar.playToClient(
+                ConsolePayloads.SetCursor.TYPE,
+                ConsolePayloads.SetCursor.STREAM_CODEC,
+                ConsoleClientHandler::handleSetCursor
+        );
+        registrar.playToClient(
                 ConsolePayloads.InputRequest.TYPE,
                 ConsolePayloads.InputRequest.STREAM_CODEC,
                 ConsoleClientHandler::handleInputRequest
+        );
+        registrar.playToClient(
+                ConsolePayloads.InputCancel.TYPE,
+                ConsolePayloads.InputCancel.STREAM_CODEC,
+                ConsoleClientHandler::handleInputCancel
+        );
+        registrar.playToClient(
+                ConsolePayloads.InputInject.TYPE,
+                ConsolePayloads.InputInject.STREAM_CODEC,
+                ConsoleClientHandler::handleInputInject
+        );
+        registrar.playToClient(
+                ConsolePayloads.SetMask.TYPE,
+                ConsolePayloads.SetMask.STREAM_CODEC,
+                ConsoleClientHandler::handleSetMask
+        );
+        registrar.playToClient(
+                ConsolePayloads.SetLayer.TYPE,
+                ConsolePayloads.SetLayer.STREAM_CODEC,
+                ConsoleClientHandler::handleSetLayer
+        );
+        registrar.playToClient(
+                ConsolePayloads.SetPalette.TYPE,
+                ConsolePayloads.SetPalette.STREAM_CODEC,
+                ConsoleClientHandler::handleSetPalette
+        );
+        registrar.playToClient(
+                ConsolePayloads.Query.TYPE,
+                ConsolePayloads.Query.STREAM_CODEC,
+                ConsoleClientHandler::handleQuery
         );
     }
 }
