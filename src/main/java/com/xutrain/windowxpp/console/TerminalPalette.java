@@ -19,7 +19,7 @@ public final class TerminalPalette {
 
     // 传统 conhost 配色，色相最饱和
     public static final TerminalPalette VINTAGE = new TerminalPalette(
-            "vintage", 0xC0C0C0, AnsiColors.DEFAULT_BACKGROUND, 0xFFFFFF,
+            "vintage", 0xC0C0C0, 0x000000, 0xFFFFFF,
             new int[]{
                     0x000000, 0x800000, 0x008000, 0x808000,
                     0x000080, 0x800080, 0x008080, 0xC0C0C0,
@@ -49,7 +49,7 @@ public final class TerminalPalette {
     );
 
     public static final TerminalPalette TANGO = new TerminalPalette(
-            "tango", 0xD3D7CF, AnsiColors.DEFAULT_BACKGROUND, 0xFFFFFF,
+            "tango", 0xD3D7CF, 0x000000, 0xFFFFFF,
             new int[]{
                     0x000000, 0xCC0000, 0x4E9A06, 0xC4A000,
                     0x3465A4, 0x75507B, 0x06989A, 0xD3D7CF,

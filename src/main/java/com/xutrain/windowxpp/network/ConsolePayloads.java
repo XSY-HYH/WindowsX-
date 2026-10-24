@@ -420,6 +420,22 @@ public final class ConsolePayloads {
         }
     }
 
+    public record SetSmooth(String consoleId, int mode) implements CustomPacketPayload {
+        public static final Type<SetSmooth> TYPE = new Type<>(id("console_set_smooth"));
+        public static final StreamCodec<FriendlyByteBuf, SetSmooth> STREAM_CODEC = StreamCodec.of(
+                (buffer, payload) -> {
+                    buffer.writeUtf(payload.consoleId());
+                    buffer.writeVarInt(payload.mode());
+                },
+                buffer -> new SetSmooth(buffer.readUtf(), buffer.readVarInt())
+        );
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
     public record SetEvents(String consoleId, boolean enabled) implements CustomPacketPayload {
         public static final Type<SetEvents> TYPE = new Type<>(id("console_set_events"));
         public static final StreamCodec<FriendlyByteBuf, SetEvents> STREAM_CODEC = StreamCodec.of(

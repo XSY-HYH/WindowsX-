@@ -2,6 +2,8 @@ package com.xutrain.windowxpp.console;
 
 import com.xutrain.windowx.client.multiwindow.CustomWindow;
 import com.xutrain.windowxpp.network.ConsolePayloads;
+import net.minecraft.client.Minecraft;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
@@ -11,7 +13,8 @@ import java.util.UUID;
 // 一个控制台窗口及其终端状态
 public final class ConsoleSession {
     private static final int MIN_FONT_SIZE = 6;
-    private static final int MAX_FONT_SIZE = 200;
+    // 2000 号字已经比 4K 屏还高，只是防住手滑输入的天文数字
+    private static final int MAX_FONT_SIZE = 2000;
     private static final int MAX_INPUT_LENGTH = 256;
     // 程序设过尺寸后等这么多帧再允许按实际尺寸重排，避开系统的延迟调整
     private static final int SIZE_SETTLE_FRAMES = 5;
@@ -35,10 +38,12 @@ public final class ConsoleSession {
     private String inputObjective = "";
     private int fontSize;
     private String fontFamily = "";
+    // -1 跟随字号自动，0 强制像素渲染，1 强制抗锯齿
+    private int smoothMode = -1;
     private float opacity = 1.0F;
     private int background = AnsiColors.DEFAULT_BACKGROUND;
-    private int expectedWidth = -1;
-    private int expectedHeight = -1;
+    private int layoutWidth = -1;
+    private int layoutHeight = -1;
     private int selectionStartX = -1;
     private int selectionStartY = -1;
     private int selectionEndX = -1;
@@ -64,10 +69,10 @@ public final class ConsoleSession {
         this.flags = flags == null ? "" : flags;
         this.fontSize = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, fontSize));
         this.background = background;
-        this.renderer = new TerminalRenderer(this.fontSize);
+        this.renderer = new TerminalRenderer(this.fontSize, "", smoothMode);
         this.buffer = new TerminalBuffer(colsFor(window), rowsFor(window));
-        this.expectedWidth = window.getWidth();
-        this.expectedHeight = window.getHeight();
+        this.layoutWidth = window.getWidth();
+        this.layoutHeight = window.getHeight();
         window.setOverlayOpacity(1.0F);
         window.setContentLayer("T");
         parser.setPalette(palette);
@@ -128,6 +133,11 @@ public final class ConsoleSession {
     public synchronized void clear(int mode) {
         parser.reset();
         buffer.eraseDisplay(mode);
+        // 整屏清除等于 cls，要回到左上角，否则提示符会落在清屏前的行上
+        if (mode == 2) {
+            buffer.setCursor(0, 0);
+            buffer.resetScrollRegion();
+        }
         dirty = true;
     }
 
@@ -167,8 +177,8 @@ public final class ConsoleSession {
         if (targetCols != buffer.cols() || targetRows != buffer.rows()) {
             buffer.resize(targetCols, targetRows);
         }
-        expectedWidth = targetWidth;
-        expectedHeight = targetHeight;
+        layoutWidth = targetWidth;
+        layoutHeight = targetHeight;
         pendingSizeFrames = SIZE_SETTLE_FRAMES;
         dirty = true;
     }
@@ -260,6 +270,19 @@ public final class ConsoleSession {
         publishLive();
     }
 
+    // 键盘和鼠标回调跑在窗口自己的渲染线程上，发包必须切回游戏主线程
+    private void sendToServer(CustomPacketPayload payload) {
+        Minecraft.getInstance().execute(() -> {
+            try {
+                PacketDistributor.sendToServer(payload);
+            } catch (RuntimeException e) {
+                com.xutrain.windowxpp.WindowXPP.LOGGER.warn(
+                        "[WindowsX++] 发送失败: {}", e.getMessage()
+                );
+            }
+        });
+    }
+
     // 动态模式下每次缓冲变化就同步，解析不出整数时保持计分板原值
     private void publishLive() {
         if (!inputLive || inputObjective.isEmpty()) {
@@ -267,17 +290,8 @@ public final class ConsoleSession {
         }
         try {
             int value = Integer.parseInt(inputLine.toString().trim());
-            com.xutrain.windowxpp.WindowXPP.LOGGER.info(
-                    "[WindowsX++] live input {} -> {}", inputLine, value
-            );
-            PacketDistributor.sendToServer(
-                    new ConsolePayloads.InputResult(id, String.valueOf(value), inputObjective)
-            );
+            sendToServer(new ConsolePayloads.InputResult(id, String.valueOf(value), inputObjective));
         } catch (NumberFormatException ignored) {
-        } catch (RuntimeException e) {
-            com.xutrain.windowxpp.WindowXPP.LOGGER.warn(
-                    "[WindowsX++] 实时输入发送失败: {}", e.getMessage()
-            );
         }
     }
 
@@ -302,7 +316,8 @@ public final class ConsoleSession {
             sendAbort();
             return false;
         }
-        if (!isInteger(value)) {
+        // 纯文本输入（objective 为空）不做整数校验，避免干扰命令行界面
+        if (!objective.isEmpty() && !isInteger(value)) {
             print("\u001b[33m非整数，只写入 storage\u001b[0m\n");
         }
         sendResult(value, objective);
@@ -310,24 +325,12 @@ public final class ConsoleSession {
     }
 
     private void sendResult(String text, String objective) {
-        try {
-            PacketDistributor.sendToServer(new ConsolePayloads.InputResult(id, text, objective));
-        } catch (RuntimeException e) {
-            com.xutrain.windowxpp.WindowXPP.LOGGER.warn(
-                    "[WindowsX++] 输入结果发送失败: {}", e.getMessage()
-            );
-        }
+        sendToServer(new ConsolePayloads.InputResult(id, text, objective));
     }
 
     // 取消也要回传，否则服务端无法区分「没回答」和「还在等」
     private void sendAbort() {
-        try {
-            PacketDistributor.sendToServer(new ConsolePayloads.InputAborted(id));
-        } catch (RuntimeException e) {
-            com.xutrain.windowxpp.WindowXPP.LOGGER.warn(
-                    "[WindowsX++] 取消通知发送失败: {}", e.getMessage()
-            );
-        }
+        sendToServer(new ConsolePayloads.InputAborted(id));
     }
 
     // 事件默认关闭，数据包显式开启后才回传，避免随便按键都发包
@@ -343,13 +346,7 @@ public final class ConsoleSession {
         if (!eventsEnabled) {
             return;
         }
-        try {
-            PacketDistributor.sendToServer(new ConsolePayloads.KeyEvent(id, key, mods));
-        } catch (RuntimeException e) {
-            com.xutrain.windowxpp.WindowXPP.LOGGER.warn(
-                    "[WindowsX++] 按键事件发送失败: {}", e.getMessage()
-            );
-        }
+        sendToServer(new ConsolePayloads.KeyEvent(id, key, mods));
     }
 
     // 内部坐标是 0 基，回传时换成终端习惯的 1 基
@@ -357,15 +354,7 @@ public final class ConsoleSession {
         if (!eventsEnabled) {
             return;
         }
-        try {
-            PacketDistributor.sendToServer(
-                    new ConsolePayloads.ClickEvent(id, column + 1, row + 1, button)
-            );
-        } catch (RuntimeException e) {
-            com.xutrain.windowxpp.WindowXPP.LOGGER.warn(
-                    "[WindowsX++] 点击事件发送失败: {}", e.getMessage()
-            );
-        }
+        sendToServer(new ConsolePayloads.ClickEvent(id, column + 1, row + 1, button));
     }
 
     private static boolean isInteger(String text) {
@@ -648,20 +637,54 @@ public final class ConsoleSession {
         applyFontChange(fontSize, target);
     }
 
+    // 窗口先跟着字号长，顶到屏幕工作区就停住，之后只有渲染继续放大
     private void applyFontChange(int size, String family) {
         int cols = buffer.cols();
         int rows = buffer.rows();
         fontSize = size;
         fontFamily = family;
-        renderer = new TerminalRenderer(fontSize, fontFamily);
-        // 保持行列不变，窗口跟着字号长，超出屏幕也照长
-        int width = cols * renderer.cellWidth();
-        int height = rows * renderer.cellHeight();
-        resizeWindowUnrestricted(width, height);
-        expectedWidth = width;
-        expectedHeight = height;
+        renderer = new TerminalRenderer(fontSize, family, smoothMode);
+        int contentWidth = cols * renderer.cellWidth();
+        int contentHeight = rows * renderer.cellHeight();
+        int[] limit = displayLimit();
+        int width = Math.min(contentWidth, limit[0]);
+        int height = Math.min(contentHeight, limit[1]);
+        if (width != window.getWidth() || height != window.getHeight()) {
+            resizeWindowUnrestricted(width, height);
+        }
+        // 行列不动，布局基准直接认新窗口尺寸，免得被当成用户拖拽而重排
+        layoutWidth = width;
+        layoutHeight = height;
         pendingSizeFrames = SIZE_SETTLE_FRAMES;
         dirty = true;
+    }
+
+    // 锐利度开关，-1 跟随字号，1 强制抗锯齿，0 强制像素渲染
+    public synchronized void setSmoothMode(int mode) {
+        int target = Math.max(-1, Math.min(1, mode));
+        if (target == smoothMode) {
+            return;
+        }
+        smoothMode = target;
+        renderer = new TerminalRenderer(fontSize, fontFamily, smoothMode);
+        dirty = true;
+    }
+
+    // 主显示器工作区，留出标题栏和窗口边框
+    private int[] displayLimit() {
+        long monitor = GLFW.glfwGetWindowMonitor(handle);
+        if (monitor == 0L) {
+            monitor = GLFW.glfwGetPrimaryMonitor();
+        }
+        if (monitor == 0L) {
+            return new int[]{Integer.MAX_VALUE, Integer.MAX_VALUE};
+        }
+        int[] x = new int[1];
+        int[] y = new int[1];
+        int[] width = new int[1];
+        int[] height = new int[1];
+        GLFW.glfwGetMonitorWorkarea(monitor, x, y, width, height);
+        return new int[]{Math.max(320, width[0] - 80), Math.max(240, height[0] - 120)};
     }
 
     public synchronized void setOpacity(float value) {
@@ -684,32 +707,28 @@ public final class ConsoleSession {
         dirty = true;
     }
 
-    // 窗口尺寸变化时按新的字符数重排内容
+    // 只有窗口尺寸真的变了才重排，字号变化不动窗口也不动行列
     public synchronized void resizeIfNeeded() {
         int width = window.getWidth();
         int height = window.getHeight();
-        // 程序刚设过尺寸，这几帧只认下实际值，绝不据此重排
+        // 程序刚设过尺寸，这几帧只认下实际值
         if (pendingSizeFrames > 0) {
             pendingSizeFrames--;
-            expectedWidth = width;
-            expectedHeight = height;
+            layoutWidth = width;
+            layoutHeight = height;
+            return;
+        }
+        if (width == layoutWidth && height == layoutHeight) {
             return;
         }
         int targetCols = Math.max(1, width / renderer.cellWidth());
         int targetRows = Math.max(1, height / renderer.cellHeight());
-        if (targetCols == buffer.cols() && targetRows == buffer.rows()) {
-            expectedWidth = width;
-            expectedHeight = height;
-            return;
+        if (targetCols != buffer.cols() || targetRows != buffer.rows()) {
+            buffer.resize(targetCols, targetRows);
+            dirty = true;
         }
-        // 落在期望值附近的是系统对请求尺寸的微调，同样不重排
-        if (Math.abs(width - expectedWidth) <= 2 && Math.abs(height - expectedHeight) <= 2) {
-            return;
-        }
-        buffer.resize(targetCols, targetRows);
-        expectedWidth = width;
-        expectedHeight = height;
-        dirty = true;
+        layoutWidth = width;
+        layoutHeight = height;
     }
 
     // 窗口尺寸变了也必须重画，否则旧纹理会被拉伸成糊的

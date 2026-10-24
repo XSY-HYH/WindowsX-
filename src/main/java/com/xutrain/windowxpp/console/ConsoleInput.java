@@ -50,13 +50,20 @@ public final class ConsoleInput {
 
     private static void installKeyboard(long handle, ConsoleSession session) {
         glfwSetKeyCallback(handle, (win, key, scancode, action, mods) -> {
+            // 临时排查：确认按键事件到底有没有进来
+            com.xutrain.windowxpp.WindowXPP.LOGGER.info(
+                    "[WindowsX++] key={} action={} pending={}", key, action, session.inputPending()
+            );
             if (action != GLFW_PRESS && action != GLFW_REPEAT) {
                 return;
             }
             // 等待文本输入时键盘归输入框，否则全部作为事件回传
             if (session.inputPending()) {
                 if (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) {
-                    session.commitInput();
+                    boolean ok = session.commitInput();
+                    com.xutrain.windowxpp.WindowXPP.LOGGER.info(
+                            "[WindowsX++] commitInput -> {}", ok
+                    );
                 } else if (key == GLFW_KEY_BACKSPACE) {
                     session.eraseCharacter();
                 } else if (key == GLFW_KEY_ESCAPE) {

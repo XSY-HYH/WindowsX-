@@ -79,11 +79,12 @@ public final class WindowXCCommand {
     };
 
     private static final SuggestionProvider<CommandSourceStack> SUGGEST_FONTS = (context, builder) -> {
+        builder.suggest("NSimSun");
+        builder.suggest("SimSun");
+        builder.suggest("Consolas");
         builder.suggest("Cascadia Mono");
         builder.suggest("Cascadia Code");
-        builder.suggest("Consolas");
         builder.suggest("Microsoft YaHei");
-        builder.suggest("SimSun");
         builder.suggest("Sarasa Mono SC");
         return builder.buildFuture();
     };
@@ -116,6 +117,7 @@ public final class WindowXCCommand {
                                 .then(list())
                                 .then(getConsole())
                                 .then(dump())
+                                .then(prompt())
                                 .then(read()))
         );
     }
@@ -145,7 +147,9 @@ public final class WindowXCCommand {
     }
 
     private static ArgumentBuilder<CommandSourceStack, ?> addColorNode() {
+        // 颜色后面直接结束也算完整命令，选项和标题都可省
         return Commands.argument("color", StringArgumentType.word())
+                .executes(context -> add(context, "", ""))
                 .then(addFlagsNode())
                 .then(addTitleNode());
     }
@@ -223,11 +227,12 @@ public final class WindowXCCommand {
     private static ArgumentBuilder<CommandSourceStack, ?> fontIdNode() {
         return Commands.argument("id", ConsoleIdArgumentType.consoleId())
                 .then(fontSizeNode())
-                .then(fontFamilyNode());
+                .then(fontFamilyNode())
+                .then(fontSmoothNode());
     }
 
     private static ArgumentBuilder<CommandSourceStack, ?> fontSizeNode() {
-        return Commands.argument("size", IntegerArgumentType.integer(6, 200))
+        return Commands.argument("size", IntegerArgumentType.integer(6, 2000))
                 .executes(WindowXCCommand::setFontSize);
     }
 
@@ -239,6 +244,14 @@ public final class WindowXCCommand {
         return Commands.argument("name", StringArgumentType.greedyString())
                 .suggests(SUGGEST_FONTS)
                 .executes(WindowXCCommand::setFontFamily);
+    }
+
+    // 锐利度：auto 跟随字号，on 强制抗锯齿，off 强制像素渲染
+    private static ArgumentBuilder<CommandSourceStack, ?> fontSmoothNode() {
+        return Commands.literal("smooth")
+                .then(Commands.literal("auto").executes(context -> setSmooth(context, -1)))
+                .then(Commands.literal("on").executes(context -> setSmooth(context, 1)))
+                .then(Commands.literal("off").executes(context -> setSmooth(context, 0)));
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> opacity() {
@@ -471,6 +484,20 @@ public final class WindowXCCommand {
                         .executes(WindowXCCommand::dump));
     }
 
+    // 纯文本输入，不绑定计分板，输入内容只写进 storage
+    private static LiteralArgumentBuilder<CommandSourceStack> prompt() {
+        return Commands.literal("prompt").then(promptIdNode());
+    }
+
+    private static ArgumentBuilder<CommandSourceStack, ?> promptIdNode() {
+        return Commands.argument("id", ConsoleIdArgumentType.consoleId())
+                .executes(context -> prompt(context, ""))
+                .then(Commands.argument("text", StringArgumentType.greedyString())
+                        .executes(context -> prompt(
+                                context, StringArgumentType.getString(context, "text")
+                        )));
+    }
+
     private static LiteralArgumentBuilder<CommandSourceStack> read() {
         return Commands.literal("read").then(readIdNode());
     }
@@ -601,6 +628,21 @@ public final class WindowXCCommand {
         String name = StringArgumentType.getString(context, "name");
         // size 传 0 表示只换字体族
         return broadcast(context, player -> new ConsolePayloads.SetFont(id, 0, name));
+    }
+
+    private static int prompt(CommandContext<CommandSourceStack> context, String text)
+            throws CommandSyntaxException {
+        String id = context.getArgument("id", String.class);
+        return broadcast(
+                context,
+                player -> new ConsolePayloads.InputRequest(id, text, "", false, false)
+        );
+    }
+
+    private static int setSmooth(CommandContext<CommandSourceStack> context, int mode)
+            throws CommandSyntaxException {
+        String id = context.getArgument("id", String.class);
+        return broadcast(context, player -> new ConsolePayloads.SetSmooth(id, mode));
     }
 
     private static int setOpacity(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {

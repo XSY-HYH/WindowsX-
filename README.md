@@ -23,8 +23,9 @@ All console commands are under `windowsxc <targets>`.
 | `title <id> <text>` | Set the window title |
 | `top <id> <true\|false>` | Keep the window above the game window |
 | `bg <id> <color>` | Set the terminal background color |
-| `font <id> <size>` | Set the font size, 6 to 48 |
+| `font <id> <size>` | Set the font size, 6 to 2000 |
 | `font <id> family <name>` | Set the font family |
+| `font <id> smooth <auto\|on\|off>` | Anti alias mode, `auto` follows the font size |
 | `opacity <id> <0.1-1.0>` | Set window opacity |
 | `cursor <id> <true\|false>` | Show or hide the cursor |
 | `print <id> <text>` | Write text at the cursor |

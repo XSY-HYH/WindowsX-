@@ -64,6 +64,8 @@ public final class ConsoleInputHandler {
         CompoundTag entry = root.getCompound(consoleId).copy();
         entry.putString("input", text);
         entry.putInt("length", text.length());
+        // 单调计数，数据包靠它判断出现了新的一次输入，相同文本也能区分
+        entry.putInt("inputCount", entry.getInt("inputCount") + 1);
         entry.remove("aborted");
         root.put(consoleId, entry);
         server.getCommandStorage().set(STORAGE_ID, root);

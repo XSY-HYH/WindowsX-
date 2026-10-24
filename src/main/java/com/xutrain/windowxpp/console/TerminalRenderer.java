@@ -10,6 +10,7 @@ import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
 
 // 把字符网格画成 ARGB 像素，布局参考 Windows Terminal
@@ -17,16 +18,30 @@ public final class TerminalRenderer {
     // conhost 的选中是白底黑字，不是蓝色高亮
     private static final int SELECTION_BACKGROUND = 0xF2F2F2;
     private static final int SELECTION_FOREGROUND = 0x000000;
-    // 超过这个字号才开抗锯齿，小字开着会发虚
-    private static final int SMOOTH_FONT_FROM = 20;
+    // conhost 走 ClearType，混色是带伽马校正的；Java2D 的 LCD 模式是对应实现
+    private static final int LCD_CONTRAST = 180;
+    // conhost 靠内嵌点阵做到小字号锐利，Java2D 拿不到点阵，只能在小字号上退回像素渲染
+    private static final int PIXEL_RENDER_MAX_HEIGHT = 20;
 
-    // 优先选自带中文的等宽字体，其次才是西文等宽
-    private static final String[] FONT_CANDIDATES = {
-            "Sarasa Mono SC", "Sarasa Term SC", "Sarasa Fixed SC",
-            "Noto Sans Mono CJK SC", "Noto Sans Mono CJK",
-            "Cascadia Mono", "Cascadia Code", "Consolas", "Menlo",
-            "DejaVu Sans Mono", "Lucida Console", "Courier New", Font.MONOSPACED
-    };
+    // conhost 按代码页从注册表挑默认字体，中日韩各有自己的等宽字体，其余回退 Consolas
+    private static final String[] FONT_CANDIDATES = buildCandidates();
+
+    // 第一顺位对齐 conhost 的系统默认字体，后面的只是没装时依次回退
+    private static String[] buildCandidates() {
+        String language = Locale.getDefault().getLanguage();
+        String preferred = switch (language) {
+            case "zh" -> "NSimSun";
+            case "ja" -> "MS Gothic";
+            case "ko" -> "GulimChe";
+            default -> "Consolas";
+        };
+        return new String[]{
+                preferred,
+                "Consolas", "Cascadia Mono", "Cascadia Code",
+                "Sarasa Mono SC", "Noto Sans Mono CJK SC",
+                "Lucida Console", "Courier New", Font.MONOSPACED
+        };
+    }
 
     // 主字体缺字时用它兜底，保证中文不出现方块
     private static final String[] FALLBACK_CANDIDATES = {
@@ -42,17 +57,13 @@ public final class TerminalRenderer {
     private final int cellWidth;
     private final int cellHeight;
     private final int baseline;
-    private final int fontSize;
-    private final float baselineRatio;
+    private final int smoothMode;
     private BufferedImage cachedImage;
 
-    public TerminalRenderer(int fontSize) {
-        this(fontSize, "");
-    }
-
-    // family 为空时按候选链自动挑选，指定后优先用它
-    public TerminalRenderer(int fontSize, String family) {
+    // smoothMode 传 -1 跟随字号自动判断，0 强制像素渲染，1 强制抗锯齿
+    public TerminalRenderer(int fontSize, String family, int smoothMode) {
         int size = Math.max(6, fontSize);
+        this.smoothMode = smoothMode;
         Set<String> available = availableFamilies();
         String normalFamily = family == null || family.isEmpty()
                 ? pick(FONT_CANDIDATES, available)
@@ -73,8 +84,6 @@ public final class TerminalRenderer {
         this.cellWidth = Math.max(1, Math.round(metrics.charWidth('M')));
         this.cellHeight = Math.max(1, metrics.getHeight());
         this.baseline = (cellHeight + metrics.getAscent() - metrics.getDescent()) / 2;
-        this.baselineRatio = (float) baseline / cellHeight;
-        this.fontSize = size;
         graphics.dispose();
     }
 
@@ -135,16 +144,22 @@ public final class TerminalRenderer {
         }
         BufferedImage image = cachedImage;
         Graphics2D graphics = image.createGraphics();
-        // 小字号要像素对齐才锐利，大字号开抗锯齿边缘才不毛糙
-        boolean smooth = fontSize >= SMOOTH_FONT_FROM;
-        graphics.setRenderingHint(
-                RenderingHints.KEY_TEXT_ANTIALIASING,
-                smooth ? RenderingHints.VALUE_TEXT_ANTIALIAS_ON : RenderingHints.VALUE_TEXT_ANTIALIAS_OFF
-        );
-        graphics.setRenderingHint(
-                RenderingHints.KEY_ANTIALIASING,
-                smooth ? RenderingHints.VALUE_ANTIALIAS_ON : RenderingHints.VALUE_ANTIALIAS_OFF
-        );
+        // 小字号优先像素渲染，锐利度接近 conhost 的内嵌点阵；大字号才用带校正的子像素抗锯齿
+        boolean smooth = smoothMode > 0 || (smoothMode < 0 && cellHeight > PIXEL_RENDER_MAX_HEIGHT);
+        if (smooth) {
+            graphics.setRenderingHint(
+                    RenderingHints.KEY_TEXT_ANTIALIASING,
+                    RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB
+            );
+            graphics.setRenderingHint(RenderingHints.KEY_TEXT_LCD_CONTRAST, LCD_CONTRAST);
+            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        } else {
+            graphics.setRenderingHint(
+                    RenderingHints.KEY_TEXT_ANTIALIASING,
+                    RenderingHints.VALUE_TEXT_ANTIALIAS_OFF
+            );
+            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
+        }
         graphics.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_OFF);
         // 用 Src 直接覆盖而非混合，保证底色是纯色而不是叠出来的
         graphics.setComposite(AlphaComposite.Src);
@@ -152,27 +167,16 @@ public final class TerminalRenderer {
         graphics.fillRect(0, 0, width, height);
         graphics.setComposite(AlphaComposite.SrcOver);
 
-        // 逐格取整而不是固定格宽，累计误差不会留到最后一行一列
-        int[] edgeX = new int[cols + 1];
-        for (int x = 0; x <= cols; x++) {
-            edgeX[x] = Math.round((float) width * x / cols);
-        }
-        int[] edgeY = new int[rows + 1];
-        for (int y = 0; y <= rows; y++) {
-            edgeY[y] = Math.round((float) height * y / rows);
-        }
-
+        // 格子按字体真实尺寸排布，超出纹理的部分直接裁掉，和 conhost 把字形画出视口外一致
         for (int y = 0; y < rows; y++) {
-            int top = edgeY[y];
-            int cellHeight = edgeY[y + 1] - top;
-            if (cellHeight <= 0) {
-                continue;
+            int top = y * cellHeight;
+            if (top >= height) {
+                break;
             }
             for (int x = 0; x < cols; x++) {
-                int left = edgeX[x];
-                int cellWidth = edgeX[x + 1] - left;
-                if (cellWidth <= 0) {
-                    continue;
+                int left = x * cellWidth;
+                if (left >= width) {
+                    break;
                 }
                 TerminalBuffer.Cell cell = buffer.cellAt(x, y);
                 char character = cell.character();
@@ -190,17 +194,16 @@ public final class TerminalRenderer {
                 if (TerminalBuffer.isContinuation(character)) {
                     continue;
                 }
-                int drawWidth = TerminalBuffer.isWide(character) && x + 1 < cols
-                        ? edgeX[x + 2] - left
-                        : cellWidth;
-                drawWidth = Math.min(drawWidth, width - left);
+                int drawWidth = Math.min(
+                        TerminalBuffer.isWide(character) ? cellWidth * 2 : cellWidth,
+                        width - left
+                );
                 int color = selected ? SELECTION_FOREGROUND : resolveForeground(style, palette);
                 if (character != ' ') {
                     Font font = pickFont(character, style.bold());
                     graphics.setFont(font);
                     graphics.setColor(new Color(color));
-                    int baselineY = top + Math.round(cellHeight * baselineRatio);
-                    graphics.drawString(String.valueOf(character), left, baselineY);
+                    graphics.drawString(String.valueOf(character), left, top + baseline);
                 }
                 if (style.underline()) {
                     graphics.setColor(new Color(color));
@@ -215,20 +218,18 @@ public final class TerminalRenderer {
 
         if (showCursor) {
             // conhost 默认光标是底部一段实心条
-            int cursorColumn = Math.min(cols - 1, buffer.cursorX());
-            int cursorRow = Math.min(rows - 1, buffer.cursorY());
-            int cursorLeft = edgeX[cursorColumn];
-            int cursorTop = edgeY[cursorRow];
-            int cursorWidth = edgeX[cursorColumn + 1] - cursorLeft;
-            int cursorHeight = edgeY[cursorRow + 1] - cursorTop;
-            int barHeight = Math.max(2, cursorHeight / 4);
-            graphics.setColor(new Color(palette.cursor()));
-            graphics.fillRect(
-                    cursorLeft,
-                    cursorTop + cursorHeight - barHeight,
-                    cursorWidth,
-                    barHeight
-            );
+            int cursorLeft = buffer.cursorX() * cellWidth;
+            int cursorTop = buffer.cursorY() * cellHeight;
+            if (cursorLeft < width && cursorTop < height) {
+                int barHeight = Math.max(2, cellHeight / 4);
+                graphics.setColor(new Color(palette.cursor()));
+                graphics.fillRect(
+                        cursorLeft,
+                        cursorTop + cellHeight - barHeight,
+                        Math.min(cellWidth, width - cursorLeft),
+                        barHeight
+                );
+            }
         }
 
         graphics.dispose();

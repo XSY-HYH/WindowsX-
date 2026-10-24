@@ -212,6 +212,15 @@ public final class ConsoleClientHandler {
         });
     }
 
+    public static void handleSetSmooth(ConsolePayloads.SetSmooth payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            ConsoleSession session = local(payload.consoleId());
+            if (session != null) {
+                session.setSmoothMode(payload.mode());
+            }
+        });
+    }
+
     public static void handleSetEvents(ConsolePayloads.SetEvents payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             ConsoleSession session = local(payload.consoleId());
