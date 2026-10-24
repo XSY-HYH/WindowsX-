@@ -41,6 +41,7 @@ All console commands are under `windowsxc <targets>`.
 | `input mask <id> <true\|false>` | Echo `*` instead of the typed characters |
 | `layer <id> <normal\|top\|passthrough\|solid>` | Set the window layer |
 | `palette <id> <name>` | Switch the ANSI color scheme |
+| `events <id> <true\|false>` | Report key presses and clicks to the storage |
 | `list` | List the console windows of the target players |
 | `get <id>` | Print the properties of a console |
 | `dump <id>` | Write the screen text to `data storage windowxpp:consoles <id>.dump` |
@@ -52,6 +53,26 @@ Palette names: `campbell`, `vintage`, `onehalfdark`, `solarized`, `tango`. Switc
 `read` submits integer values to the objective and always stores the text under `data storage windowxpp:consoles <id>.input`. A non integer submission still reaches the storage and is reported in the console.
 
 Cancelling an input, pressing `Esc` or closing the window writes `{input: "", length: 0, aborted: true}` to the same storage path, so a datapack can tell an answer from a request that was never answered.
+
+## Events
+
+`events <id> true` turns the console into an input device. While text input is not pending, every key press and left or right click is written to `data storage windowxpp:consoles <id>`:
+
+| Field | Meaning |
+| --- | --- |
+| `key` | GLFW key code of the last press |
+| `keyMods` | GLFW modifier bits, Shift `1`, Control `2`, Alt `4`, Super `8` |
+| `keyCount` | Monotonic counter, compare it to detect a new press |
+| `clickX` `clickY` | Clicked cell, 1 based |
+| `clickButton` | GLFW button, left `0`, right `1` |
+| `clickCount` | Monotonic counter |
+
+Only presses are reported, holding a key does not stream events. While `read` is waiting for text, the keyboard belongs to the input line and nothing is reported.
+
+Common key codes: `Space 32`, `A-Z 65-90`, `0-9 48-57`, `Escape 256`, `Enter 257`, `Tab 258`, `Backspace 259`, `Delete 261`, `Right 262`, `Left 263`, `Down 264`, `Up 265`, `Home 268`, `End 269`, `F1-F12 290-301`.
+
+A menu loop reads `keyCount` every tick, and when it grows, reads `key` and dispatches on it.
+
 
 Keys inside a console window: `Enter` submits, `Esc` cancels, `Backspace` deletes across line breaks, `Ctrl+V` and right click paste, right click with a selection copies, `Ctrl` + wheel changes the font size, `Ctrl+Shift` + wheel changes opacity.
 

@@ -34,6 +34,16 @@ public final class WindowXPPNetwork {
                 ConsoleQueryHandler::handle
         );
         registrar.playToServer(
+                ConsolePayloads.KeyEvent.TYPE,
+                ConsolePayloads.KeyEvent.STREAM_CODEC,
+                ConsoleInputHandler::handleKey
+        );
+        registrar.playToServer(
+                ConsolePayloads.ClickEvent.TYPE,
+                ConsolePayloads.ClickEvent.STREAM_CODEC,
+                ConsoleInputHandler::handleClick
+        );
+        registrar.playToServer(
                 WindowPayloads.Position.TYPE,
                 WindowPayloads.Position.STREAM_CODEC,
                 WindowPositionHandler::handle

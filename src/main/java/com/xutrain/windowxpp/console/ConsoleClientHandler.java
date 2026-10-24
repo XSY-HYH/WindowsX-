@@ -212,6 +212,15 @@ public final class ConsoleClientHandler {
         });
     }
 
+    public static void handleSetEvents(ConsolePayloads.SetEvents payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            ConsoleSession session = local(payload.consoleId());
+            if (session != null) {
+                session.setEventsEnabled(payload.enabled());
+            }
+        });
+    }
+
     public static void handleSetLayer(ConsolePayloads.SetLayer payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             ConsoleSession session = local(payload.consoleId());

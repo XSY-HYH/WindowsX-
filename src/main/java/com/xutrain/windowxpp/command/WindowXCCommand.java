@@ -112,6 +112,7 @@ public final class WindowXCCommand {
                                 .then(input())
                                 .then(layer())
                                 .then(palette())
+                                .then(events())
                                 .then(list())
                                 .then(getConsole())
                                 .then(dump())
@@ -444,6 +445,20 @@ public final class WindowXCCommand {
         return Commands.literal("list").executes(WindowXCCommand::list);
     }
 
+    // 开启后按键与点击会回传到 storage，供数据包做菜单
+    private static LiteralArgumentBuilder<CommandSourceStack> events() {
+        return Commands.literal("events").then(eventsIdNode());
+    }
+
+    private static ArgumentBuilder<CommandSourceStack, ?> eventsIdNode() {
+        return Commands.argument("id", ConsoleIdArgumentType.consoleId()).then(eventsStateNode());
+    }
+
+    private static ArgumentBuilder<CommandSourceStack, ?> eventsStateNode() {
+        return Commands.argument("enabled", BoolArgumentType.bool())
+                .executes(WindowXCCommand::setEvents);
+    }
+
     private static LiteralArgumentBuilder<CommandSourceStack> getConsole() {
         return Commands.literal("get")
                 .then(Commands.argument("id", ConsoleIdArgumentType.consoleId())
@@ -663,6 +678,12 @@ public final class WindowXCCommand {
             throw ERROR_UNKNOWN_PALETTE.create(name);
         }
         return broadcast(context, player -> new ConsolePayloads.SetPalette(id, palette.name()));
+    }
+
+    private static int setEvents(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        String id = context.getArgument("id", String.class);
+        boolean enabled = BoolArgumentType.getBool(context, "enabled");
+        return broadcast(context, player -> new ConsolePayloads.SetEvents(id, enabled));
     }
 
     // 查询由客户端收集后回包，服务端只负责发请求

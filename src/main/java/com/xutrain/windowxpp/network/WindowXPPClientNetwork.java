@@ -113,6 +113,11 @@ public final class WindowXPPClientNetwork {
                 ConsoleClientHandler::handleSetMask
         );
         registrar.playToClient(
+                ConsolePayloads.SetEvents.TYPE,
+                ConsolePayloads.SetEvents.STREAM_CODEC,
+                ConsoleClientHandler::handleSetEvents
+        );
+        registrar.playToClient(
                 ConsolePayloads.SetLayer.TYPE,
                 ConsolePayloads.SetLayer.STREAM_CODEC,
                 ConsoleClientHandler::handleSetLayer

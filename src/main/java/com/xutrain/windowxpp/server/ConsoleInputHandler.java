@@ -49,7 +49,7 @@ public final class ConsoleInputHandler {
             }
             CommandStorage storage = server.getCommandStorage();
             CompoundTag root = storage.get(STORAGE_ID).copy();
-            CompoundTag entry = new CompoundTag();
+            CompoundTag entry = root.getCompound(payload.consoleId()).copy();
             entry.putString("input", "");
             entry.putInt("length", 0);
             entry.putBoolean("aborted", true);
@@ -58,14 +58,56 @@ public final class ConsoleInputHandler {
         });
     }
 
+    // 在已有条目上改，保留按键和点击字段，避免几路数据互相冲掉
     private static void writeStorage(MinecraftServer server, String consoleId, String text) {
-        CommandStorage storage = server.getCommandStorage();
-        CompoundTag root = storage.get(STORAGE_ID).copy();
-        CompoundTag entry = new CompoundTag();
+        CompoundTag root = server.getCommandStorage().get(STORAGE_ID).copy();
+        CompoundTag entry = root.getCompound(consoleId).copy();
         entry.putString("input", text);
         entry.putInt("length", text.length());
+        entry.remove("aborted");
         root.put(consoleId, entry);
-        storage.set(STORAGE_ID, root);
+        server.getCommandStorage().set(STORAGE_ID, root);
+    }
+
+    // 按键只记录最近一次并累加计数，数据包靠计数变化判断出现了新事件
+    public static void handleKey(ConsolePayloads.KeyEvent payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            MinecraftServer server = serverOf(context);
+            if (server == null) {
+                return;
+            }
+            CompoundTag root = server.getCommandStorage().get(STORAGE_ID).copy();
+            CompoundTag entry = root.getCompound(payload.consoleId()).copy();
+            entry.putInt("key", payload.key());
+            entry.putInt("keyMods", payload.mods());
+            entry.putInt("keyCount", entry.getInt("keyCount") + 1);
+            root.put(payload.consoleId(), entry);
+            server.getCommandStorage().set(STORAGE_ID, root);
+        });
+    }
+
+    public static void handleClick(ConsolePayloads.ClickEvent payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            MinecraftServer server = serverOf(context);
+            if (server == null) {
+                return;
+            }
+            CompoundTag root = server.getCommandStorage().get(STORAGE_ID).copy();
+            CompoundTag entry = root.getCompound(payload.consoleId()).copy();
+            entry.putInt("clickX", payload.x());
+            entry.putInt("clickY", payload.y());
+            entry.putInt("clickButton", payload.button());
+            entry.putInt("clickCount", entry.getInt("clickCount") + 1);
+            root.put(payload.consoleId(), entry);
+            server.getCommandStorage().set(STORAGE_ID, root);
+        });
+    }
+
+    private static MinecraftServer serverOf(IPayloadContext context) {
+        if (!(context.player() instanceof ServerPlayer player)) {
+            return null;
+        }
+        return player.getServer();
     }
 
     // 覆盖写入目标计分板，类型不符则忽略

@@ -53,15 +53,25 @@ public final class ConsoleInput {
             if (action != GLFW_PRESS && action != GLFW_REPEAT) {
                 return;
             }
-            if (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) {
-                session.commitInput();
-            } else if (key == GLFW_KEY_BACKSPACE) {
-                session.eraseCharacter();
-            } else if (key == GLFW_KEY_ESCAPE) {
-                session.cancelInput();
+            // 等待文本输入时键盘归输入框，否则全部作为事件回传
+            if (session.inputPending()) {
+                if (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) {
+                    session.commitInput();
+                } else if (key == GLFW_KEY_BACKSPACE) {
+                    session.eraseCharacter();
+                } else if (key == GLFW_KEY_ESCAPE) {
+                    session.cancelInput();
+                } else if (key == GLFW_KEY_V && (mods & GLFW_MOD_CONTROL) != 0) {
+                    session.paste(glfwGetClipboardString(handle));
+                }
+                return;
+            }
+            if (key == GLFW_KEY_ESCAPE) {
                 session.clearSelection();
-            } else if (key == GLFW_KEY_V && (mods & GLFW_MOD_CONTROL) != 0) {
-                session.paste(glfwGetClipboardString(handle));
+            }
+            // 长按不重复上报，避免一次按住刷出一串事件
+            if (action == GLFW_PRESS) {
+                session.publishKey(key, mods);
             }
         });
         glfwSetCharCallback(handle, (win, codepoint) -> {
@@ -90,6 +100,14 @@ public final class ConsoleInput {
     private static void installMouse(long handle, CustomWindow window, ConsoleSession session) {
         glfwSetMouseButtonCallback(handle, (win, button, action, mods) -> {
             double[] position = cursorPosition(handle, window);
+            // 点击事件与选中互不影响，数据包没开启时这里什么都不做
+            if (action == GLFW_PRESS) {
+                session.publishClick(
+                        session.cellColumn(position[0]),
+                        session.cellRow(position[1]),
+                        button
+                );
+            }
             if (button == GLFW_MOUSE_BUTTON_LEFT) {
                 if (action == GLFW_PRESS) {
                     session.beginSelection(
