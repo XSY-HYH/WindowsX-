@@ -198,10 +198,16 @@ public final class TerminalRenderer {
         return red << 16 | green << 8 | blue;
     }
 
-    private static Set<String> availableFamilies() {
-        return new HashSet<>(Arrays.asList(
-                GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()
-        ));
+    // 枚举系统字体很慢，字号频繁试探时不能每次都扫一遍
+    private static Set<String> familyCache;
+
+    private static synchronized Set<String> availableFamilies() {
+        if (familyCache == null) {
+            familyCache = new HashSet<>(Arrays.asList(
+                    GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()
+            ));
+        }
+        return familyCache;
     }
 
     private static String pick(String[] candidates, Set<String> available) {
