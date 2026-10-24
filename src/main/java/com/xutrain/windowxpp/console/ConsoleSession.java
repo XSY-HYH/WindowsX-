@@ -290,11 +290,50 @@ public final class ConsoleSession {
     }
 
     // 取消也要回传，否则服务端无法区分「没回答」和「还在等」
-    private void sendAbort() {        try {
+    private void sendAbort() {
+        try {
             PacketDistributor.sendToServer(new ConsolePayloads.InputAborted(id));
         } catch (RuntimeException e) {
             com.xutrain.windowxpp.WindowXPP.LOGGER.warn(
                     "[WindowsX++] 取消通知发送失败: {}", e.getMessage()
+            );
+        }
+    }
+
+    // 事件默认关闭，数据包显式开启后才回传，避免随便按键都发包
+    public synchronized void setEventsEnabled(boolean value) {
+        eventsEnabled = value;
+    }
+
+    public synchronized boolean eventsEnabled() {
+        return eventsEnabled;
+    }
+
+    public synchronized void publishKey(int key, int mods) {
+        if (!eventsEnabled) {
+            return;
+        }
+        try {
+            PacketDistributor.sendToServer(new ConsolePayloads.KeyEvent(id, key, mods));
+        } catch (RuntimeException e) {
+            com.xutrain.windowxpp.WindowXPP.LOGGER.warn(
+                    "[WindowsX++] 按键事件发送失败: {}", e.getMessage()
+            );
+        }
+    }
+
+    // 内部坐标是 0 基，回传时换成终端习惯的 1 基
+    public synchronized void publishClick(int column, int row, int button) {
+        if (!eventsEnabled) {
+            return;
+        }
+        try {
+            PacketDistributor.sendToServer(
+                    new ConsolePayloads.ClickEvent(id, column + 1, row + 1, button)
+            );
+        } catch (RuntimeException e) {
+            com.xutrain.windowxpp.WindowXPP.LOGGER.warn(
+                    "[WindowsX++] 点击事件发送失败: {}", e.getMessage()
             );
         }
     }
