@@ -73,7 +73,6 @@ Common key codes: `Space 32`, `A-Z 65-90`, `0-9 48-57`, `Escape 256`, `Enter 257
 
 A menu loop reads `keyCount` every tick, and when it grows, reads `key` and dispatches on it.
 
-
 Keys inside a console window: `Enter` submits, `Esc` cancels, `Backspace` deletes across line breaks, `Ctrl+V` and right click paste, right click with a selection copies, `Ctrl` + wheel changes the font size, `Ctrl+Shift` + wheel changes opacity.
 
 Text arguments accept `\e`, `\n` and `\r` escapes so ANSI sequences can be typed in chat.
