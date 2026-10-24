@@ -227,7 +227,7 @@ public final class WindowXCCommand {
     }
 
     private static ArgumentBuilder<CommandSourceStack, ?> fontSizeNode() {
-        return Commands.argument("size", IntegerArgumentType.integer(6, 48))
+        return Commands.argument("size", IntegerArgumentType.integer(6, 200))
                 .executes(WindowXCCommand::setFontSize);
     }
 

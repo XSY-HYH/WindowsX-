@@ -4,24 +4,40 @@ import java.nio.ByteBuffer;
 
 // 把终端像素交给窗口，由窗口自己的渲染线程完成上传
 public final class ConsoleTextures {
+    // 纹理像素总量上限，超过显卡纹理限制会导致上传失败、整屏空白
+    private static final long MAX_PIXELS = 12_000_000L;
+
     private ConsoleTextures() {
     }
 
     public static void prepare(ConsoleSession session) {
-        if (!session.isDirty()) {
-            return;
-        }
         TerminalRenderer renderer = session.renderer();
         TerminalBuffer buffer = session.buffer();
-        int width = renderer.pixelWidth(buffer.cols());
-        int height = renderer.pixelHeight(buffer.rows());
+        // 纹理尺寸直接取窗口像素，和窗口 1:1，避免拉伸插值把字糊掉
+        int width = session.window().getWidth();
+        int height = session.window().getHeight();
         if (width <= 0 || height <= 0) {
             return;
+        }
+        if (!session.needsRender(width, height)) {
+            return;
+        }
+        long total = (long) width * height;
+        if (total > MAX_PIXELS) {
+            float scale = (float) Math.sqrt((double) MAX_PIXELS / total);
+            width = Math.max(1, Math.round(width * scale));
+            height = Math.max(1, Math.round(height * scale));
         }
 
         boolean showCursor = session.inputPending() && buffer.cursorVisible();
         int[] pixels = renderer.render(
-                buffer, showCursor, session.background(), session.palette(), session.selection()
+                buffer,
+                showCursor,
+                session.background(),
+                session.palette(),
+                session.selection(),
+                width,
+                height
         );
         ByteBuffer data = session.nextPixelBuffer(width, height);
         // OpenGL 纹理原点在左下，图片原点在左上，逐行翻转
@@ -38,6 +54,6 @@ public final class ConsoleTextures {
         data.flip();
 
         session.window().setOverlayPixels(data, width, height, 1, 1, "STRETCH");
-        session.markClean();
+        session.markRendered(session.window().getWidth(), session.window().getHeight());
     }
 }

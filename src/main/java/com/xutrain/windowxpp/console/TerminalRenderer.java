@@ -17,6 +17,8 @@ public final class TerminalRenderer {
     // conhost 的选中是白底黑字，不是蓝色高亮
     private static final int SELECTION_BACKGROUND = 0xF2F2F2;
     private static final int SELECTION_FOREGROUND = 0x000000;
+    // 超过这个字号才开抗锯齿，小字开着会发虚
+    private static final int SMOOTH_FONT_FROM = 20;
 
     // 优先选自带中文的等宽字体，其次才是西文等宽
     private static final String[] FONT_CANDIDATES = {
@@ -40,6 +42,8 @@ public final class TerminalRenderer {
     private final int cellWidth;
     private final int cellHeight;
     private final int baseline;
+    private final int fontSize;
+    private final float baselineRatio;
     private BufferedImage cachedImage;
 
     public TerminalRenderer(int fontSize) {
@@ -69,6 +73,8 @@ public final class TerminalRenderer {
         this.cellWidth = Math.max(1, Math.round(metrics.charWidth('M')));
         this.cellHeight = Math.max(1, metrics.getHeight());
         this.baseline = (cellHeight + metrics.getAscent() - metrics.getDescent()) / 2;
+        this.baselineRatio = (float) baseline / cellHeight;
+        this.fontSize = size;
         graphics.dispose();
     }
 
@@ -95,10 +101,31 @@ public final class TerminalRenderer {
             TerminalPalette palette,
             ConsoleSession.Selection selection
     ) {
+        return render(
+                buffer,
+                showCursor,
+                background,
+                palette,
+                selection,
+                pixelWidth(buffer.cols()),
+                pixelHeight(buffer.rows())
+        );
+    }
+
+    // 目标像素尺寸由窗口决定，格宽按它均分，纹理和窗口严格同尺寸，拉伸时就是 1:1
+    public int[] render(
+            TerminalBuffer buffer,
+            boolean showCursor,
+            int background,
+            TerminalPalette palette,
+            ConsoleSession.Selection selection,
+            int pixelWidth,
+            int pixelHeight
+    ) {
         int cols = buffer.cols();
         int rows = buffer.rows();
-        int width = pixelWidth(cols);
-        int height = pixelHeight(rows);
+        int width = Math.max(1, pixelWidth);
+        int height = Math.max(1, pixelHeight);
 
         // 复用离屏图像，避免每次渲染都分配显存外的整块位图
         if (cachedImage == null
@@ -108,8 +135,16 @@ public final class TerminalRenderer {
         }
         BufferedImage image = cachedImage;
         Graphics2D graphics = image.createGraphics();
-        graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_OFF);
-        graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
+        // 小字号要像素对齐才锐利，大字号开抗锯齿边缘才不毛糙
+        boolean smooth = fontSize >= SMOOTH_FONT_FROM;
+        graphics.setRenderingHint(
+                RenderingHints.KEY_TEXT_ANTIALIASING,
+                smooth ? RenderingHints.VALUE_TEXT_ANTIALIAS_ON : RenderingHints.VALUE_TEXT_ANTIALIAS_OFF
+        );
+        graphics.setRenderingHint(
+                RenderingHints.KEY_ANTIALIASING,
+                smooth ? RenderingHints.VALUE_ANTIALIAS_ON : RenderingHints.VALUE_ANTIALIAS_OFF
+        );
         graphics.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_OFF);
         // 用 Src 直接覆盖而非混合，保证底色是纯色而不是叠出来的
         graphics.setComposite(AlphaComposite.Src);
@@ -117,53 +152,83 @@ public final class TerminalRenderer {
         graphics.fillRect(0, 0, width, height);
         graphics.setComposite(AlphaComposite.SrcOver);
 
+        // 逐格取整而不是固定格宽，累计误差不会留到最后一行一列
+        int[] edgeX = new int[cols + 1];
+        for (int x = 0; x <= cols; x++) {
+            edgeX[x] = Math.round((float) width * x / cols);
+        }
+        int[] edgeY = new int[rows + 1];
+        for (int y = 0; y <= rows; y++) {
+            edgeY[y] = Math.round((float) height * y / rows);
+        }
+
         for (int y = 0; y < rows; y++) {
+            int top = edgeY[y];
+            int cellHeight = edgeY[y + 1] - top;
+            if (cellHeight <= 0) {
+                continue;
+            }
             for (int x = 0; x < cols; x++) {
+                int left = edgeX[x];
+                int cellWidth = edgeX[x + 1] - left;
+                if (cellWidth <= 0) {
+                    continue;
+                }
                 TerminalBuffer.Cell cell = buffer.cellAt(x, y);
                 char character = cell.character();
                 CellStyle style = cell.style();
-                int pixelX = x * cellWidth;
-                int pixelY = y * cellHeight;
 
                 // 底色先铺满整格，宽字符的占位格也要一起上色，否则选区会有缺口
                 boolean selected = selection != null && selection.contains(x, y, cols);
                 if (selected) {
                     graphics.setColor(new Color(SELECTION_BACKGROUND));
-                    graphics.fillRect(pixelX, pixelY, cellWidth, cellHeight);
+                    graphics.fillRect(left, top, cellWidth, cellHeight);
                 } else if (style.background() != CellStyle.UNSET && style.background() != background) {
                     graphics.setColor(new Color(style.background()));
-                    graphics.fillRect(pixelX, pixelY, cellWidth, cellHeight);
+                    graphics.fillRect(left, top, cellWidth, cellHeight);
                 }
                 if (TerminalBuffer.isContinuation(character)) {
                     continue;
                 }
-                int drawWidth = TerminalBuffer.isWide(character) ? cellWidth * 2 : cellWidth;
+                int drawWidth = TerminalBuffer.isWide(character) && x + 1 < cols
+                        ? edgeX[x + 2] - left
+                        : cellWidth;
+                drawWidth = Math.min(drawWidth, width - left);
                 int color = selected ? SELECTION_FOREGROUND : resolveForeground(style, palette);
                 if (character != ' ') {
                     Font font = pickFont(character, style.bold());
                     graphics.setFont(font);
                     graphics.setColor(new Color(color));
-                    graphics.drawString(String.valueOf(character), pixelX, pixelY + baseline);
+                    int baselineY = top + Math.round(cellHeight * baselineRatio);
+                    graphics.drawString(String.valueOf(character), left, baselineY);
                 }
-                int lineWidth = Math.min(drawWidth, width - pixelX);
                 if (style.underline()) {
                     graphics.setColor(new Color(color));
-                    graphics.fillRect(pixelX, pixelY + cellHeight - 1, lineWidth, 1);
+                    graphics.fillRect(left, top + cellHeight - 1, drawWidth, 1);
                 }
                 if (style.strike()) {
                     graphics.setColor(new Color(color));
-                    graphics.fillRect(pixelX, pixelY + cellHeight / 2, lineWidth, 1);
+                    graphics.fillRect(left, top + cellHeight / 2, drawWidth, 1);
                 }
             }
         }
 
         if (showCursor) {
             // conhost 默认光标是底部一段实心条
-            int cursorX = buffer.cursorX() * cellWidth;
-            int cursorY = buffer.cursorY() * cellHeight;
-            int barHeight = Math.max(2, cellHeight / 4);
+            int cursorColumn = Math.min(cols - 1, buffer.cursorX());
+            int cursorRow = Math.min(rows - 1, buffer.cursorY());
+            int cursorLeft = edgeX[cursorColumn];
+            int cursorTop = edgeY[cursorRow];
+            int cursorWidth = edgeX[cursorColumn + 1] - cursorLeft;
+            int cursorHeight = edgeY[cursorRow + 1] - cursorTop;
+            int barHeight = Math.max(2, cursorHeight / 4);
             graphics.setColor(new Color(palette.cursor()));
-            graphics.fillRect(cursorX, cursorY + cellHeight - barHeight, cellWidth, barHeight);
+            graphics.fillRect(
+                    cursorLeft,
+                    cursorTop + cursorHeight - barHeight,
+                    cursorWidth,
+                    barHeight
+            );
         }
 
         graphics.dispose();

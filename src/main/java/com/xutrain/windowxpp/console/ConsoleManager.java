@@ -117,8 +117,9 @@ public final class ConsoleManager {
         sessions.clear();
     }
 
-    // 禁止缩小或放大通过设置尺寸上下限实现
-    private void applySizeFlags(CustomWindow window, String flags) {
+    // 禁止用户缩放：两个方向都锁死时关掉 resizable 让最大化按钮变灰，否则只设尺寸上下限。
+    // 程序自己改尺寸前会临时解除这些限制，见 ConsoleSession.resizeWindowUnrestricted
+    public void applySizeFlags(CustomWindow window, String flags) {
         long handle = window.getHandle();
         if (handle == 0L) {
             return;

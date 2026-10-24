@@ -11,7 +11,7 @@ import java.util.UUID;
 // 一个控制台窗口及其终端状态
 public final class ConsoleSession {
     private static final int MIN_FONT_SIZE = 6;
-    private static final int MAX_FONT_SIZE = 48;
+    private static final int MAX_FONT_SIZE = 200;
     private static final int MAX_INPUT_LENGTH = 256;
     // 程序设过尺寸后等这么多帧再允许按实际尺寸重排，避开系统的延迟调整
     private static final int SIZE_SETTLE_FRAMES = 5;
@@ -51,6 +51,8 @@ public final class ConsoleSession {
     private boolean dirty = true;
     private int textureWidth;
     private int textureHeight;
+    private int renderedWindowWidth = -1;
+    private int renderedWindowHeight = -1;
     private final ByteBuffer[] pixelBuffers = new ByteBuffer[2];
     private int pixelBufferIndex;
 
@@ -155,12 +157,11 @@ public final class ConsoleSession {
         print(text);
     }
 
-    // 尺寸按请求的像素算行列，超出屏幕的部分先钳制，否则窗口会被系统裁出一半
+    // 尺寸按请求的像素算行列，允许窗口超出屏幕，和 conhost 拉伸窗口的行为一致
     public synchronized void resizeWindow(int height, int width) {
-        int[] limit = displayLimit();
-        int targetWidth = Math.max(1, Math.min(width, limit[0]));
-        int targetHeight = Math.max(1, Math.min(height, limit[1]));
-        window.setSize(targetWidth, targetHeight);
+        int targetWidth = Math.max(1, width);
+        int targetHeight = Math.max(1, height);
+        resizeWindowUnrestricted(targetWidth, targetHeight);
         int targetCols = Math.max(1, targetWidth / renderer.cellWidth());
         int targetRows = Math.max(1, targetHeight / renderer.cellHeight());
         if (targetCols != buffer.cols() || targetRows != buffer.rows()) {
@@ -170,6 +171,25 @@ public final class ConsoleSession {
         expectedHeight = targetHeight;
         pendingSizeFrames = SIZE_SETTLE_FRAMES;
         dirty = true;
+    }
+
+    // nogrow / noshrink 的尺寸上限同样会挡住程序自己改尺寸，改之前先临时放开，改完再按新尺寸重设
+    private void resizeWindowUnrestricted(int width, int height) {
+        boolean limited = flags.contains("noshrink") || flags.contains("nogrow");
+        if (limited) {
+            GLFW.glfwSetWindowAttrib(handle, GLFW.GLFW_RESIZABLE, GLFW.GLFW_TRUE);
+            GLFW.glfwSetWindowSizeLimits(
+                    handle,
+                    GLFW.GLFW_DONT_CARE,
+                    GLFW.GLFW_DONT_CARE,
+                    GLFW.GLFW_DONT_CARE,
+                    GLFW.GLFW_DONT_CARE
+            );
+        }
+        window.setSize(width, height);
+        if (limited) {
+            ConsoleManager.getInstance().applySizeFlags(window, flags);
+        }
     }
 
     public synchronized void move(int x, int y) {
@@ -608,30 +628,21 @@ public final class ConsoleSession {
     }
 
     public synchronized void setFontSize(int size) {
-        int target = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, size));
-        if (target == fontSize) {
-            return;
-        }
-        // 放大到窗口放不下时会先被系统裁剪，再触发内容重排把文字挤掉，所以到顶就停住
-        if (target > fontSize && !fits(target, fontFamily)) {
-            if (!fontLimitWarned) {
-                print("\u001b[33m已到显示上限，无法继续放大\u001b[0m\n");
+        int clamped = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, size));
+        if (clamped == fontSize) {
+            if (size > MAX_FONT_SIZE && !fontLimitWarned) {
+                print("\u001b[33m已到最大字号 " + MAX_FONT_SIZE + "\u001b[0m\n");
                 fontLimitWarned = true;
             }
             return;
         }
         fontLimitWarned = false;
-        applyFontChange(target, fontFamily);
+        applyFontChange(clamped, fontFamily);
     }
 
     public synchronized void setFontFamily(String family) {
         String target = family == null ? "" : family;
         if (target.equals(fontFamily)) {
-            return;
-        }
-        // 换字体同样会改变格宽，放不下去就维持原样，免得窗口被裁掉一块
-        if (!fits(fontSize, target)) {
-            print("\u001b[33m该字体在当前字号下放不下\u001b[0m\n");
             return;
         }
         applyFontChange(fontSize, target);
@@ -643,38 +654,14 @@ public final class ConsoleSession {
         fontSize = size;
         fontFamily = family;
         renderer = new TerminalRenderer(fontSize, fontFamily);
+        // 保持行列不变，窗口跟着字号长，超出屏幕也照长
         int width = cols * renderer.cellWidth();
         int height = rows * renderer.cellHeight();
-        window.setSize(width, height);
+        resizeWindowUnrestricted(width, height);
         expectedWidth = width;
         expectedHeight = height;
-        // 请求尺寸可能被系统延迟调整，多留几帧再判定
         pendingSizeFrames = SIZE_SETTLE_FRAMES;
         dirty = true;
-    }
-
-    // 按整体像素尺寸判断能否放进显示器工作区，留出标题栏和边距
-    private boolean fits(int size, String family) {
-        TerminalRenderer probe = new TerminalRenderer(size, family);
-        int[] limit = displayLimit();
-        return buffer.cols() * probe.cellWidth() <= limit[0]
-                && buffer.rows() * probe.cellHeight() <= limit[1];
-    }
-
-    private int[] displayLimit() {
-        long monitor = GLFW.glfwGetWindowMonitor(handle);
-        if (monitor == 0L) {
-            monitor = GLFW.glfwGetPrimaryMonitor();
-        }
-        if (monitor == 0L) {
-            return new int[]{Integer.MAX_VALUE, Integer.MAX_VALUE};
-        }
-        int[] x = new int[1];
-        int[] y = new int[1];
-        int[] width = new int[1];
-        int[] height = new int[1];
-        GLFW.glfwGetMonitorWorkarea(monitor, x, y, width, height);
-        return new int[]{Math.max(320, width[0] - 80), Math.max(240, height[0] - 120)};
     }
 
     public synchronized void setOpacity(float value) {
@@ -725,15 +712,14 @@ public final class ConsoleSession {
         dirty = true;
     }
 
-    public synchronized boolean isDirty() {
-        return dirty;
+    // 窗口尺寸变了也必须重画，否则旧纹理会被拉伸成糊的
+    public synchronized boolean needsRender(int windowWidth, int windowHeight) {
+        return dirty || windowWidth != renderedWindowWidth || windowHeight != renderedWindowHeight;
     }
 
-    public synchronized void markDirty() {
-        dirty = true;
-    }
-
-    public synchronized void markClean() {
+    public synchronized void markRendered(int windowWidth, int windowHeight) {
+        renderedWindowWidth = windowWidth;
+        renderedWindowHeight = windowHeight;
         dirty = false;
     }
 
