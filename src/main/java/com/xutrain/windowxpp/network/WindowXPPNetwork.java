@@ -3,6 +3,7 @@ package com.xutrain.windowxpp.network;
 import com.xutrain.windowxpp.WindowXPP;
 import com.xutrain.windowxpp.server.ConsoleInputHandler;
 import com.xutrain.windowxpp.server.ConsoleQueryHandler;
+import com.xutrain.windowxpp.server.UiEventHandler;
 import com.xutrain.windowxpp.server.WindowPositionHandler;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -47,6 +48,11 @@ public final class WindowXPPNetwork {
                 WindowPayloads.Position.TYPE,
                 WindowPayloads.Position.STREAM_CODEC,
                 WindowPositionHandler::handle
+        );
+        registrar.playToServer(
+                UiPayloads.Event.TYPE,
+                UiPayloads.Event.STREAM_CODEC,
+                UiEventHandler::handle
         );
     }
 }

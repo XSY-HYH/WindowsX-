@@ -4,6 +4,7 @@ import com.mojang.logging.LogUtils;
 import com.xutrain.windowxpp.command.ConsoleIdArgumentType;
 import com.xutrain.windowxpp.command.ConsoleOptionsArgumentType;
 import com.xutrain.windowxpp.command.WindowXCCommand;
+import com.xutrain.windowxpp.command.WindowXPPCommand;
 import com.xutrain.windowxpp.score.WindowXCriteria;
 import net.minecraft.commands.synchronization.ArgumentTypeInfo;
 import net.minecraft.commands.synchronization.ArgumentTypeInfos;
@@ -43,5 +44,6 @@ public final class WindowXPP {
         // 让准则在命令解析前进入缓存
         WindowXCriteria.touch();
         NeoForge.EVENT_BUS.addListener(WindowXCCommand::register);
+        NeoForge.EVENT_BUS.addListener(WindowXPPCommand::register);
     }
 }

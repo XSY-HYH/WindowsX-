@@ -131,6 +131,20 @@ public final class TerminalRenderer {
             int pixelWidth,
             int pixelHeight
     ) {
+        return render(buffer, showCursor, background, palette, selection, pixelWidth, pixelHeight, UiScene.EMPTY);
+    }
+
+    // 实验性 UI 元素画在终端文字之上，共用同一张纹理
+    public int[] render(
+            TerminalBuffer buffer,
+            boolean showCursor,
+            int background,
+            TerminalPalette palette,
+            ConsoleSession.Selection selection,
+            int pixelWidth,
+            int pixelHeight,
+            UiScene scene
+    ) {
         int cols = buffer.cols();
         int rows = buffer.rows();
         int width = Math.max(1, pixelWidth);
@@ -231,6 +245,8 @@ public final class TerminalRenderer {
                 );
             }
         }
+
+        UiRenderer.paint(graphics, scene, width, height, normalFont, boldFont);
 
         graphics.dispose();
         return ((java.awt.image.DataBufferInt) image.getRaster().getDataBuffer()).getData();

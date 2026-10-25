@@ -50,20 +50,26 @@ public final class ConsoleInput {
 
     private static void installKeyboard(long handle, ConsoleSession session) {
         glfwSetKeyCallback(handle, (win, key, scancode, action, mods) -> {
-            // 临时排查：确认按键事件到底有没有进来
-            com.xutrain.windowxpp.WindowXPP.LOGGER.info(
-                    "[WindowsX++] key={} action={} pending={}", key, action, session.inputPending()
-            );
             if (action != GLFW_PRESS && action != GLFW_REPEAT) {
+                return;
+            }
+            // UI 输入框有焦点时键盘只归它，终端输入与事件回传都让位
+            if (session.uiInputFocused()) {
+                if (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) {
+                    session.commitUiInput();
+                } else if (key == GLFW_KEY_BACKSPACE) {
+                    session.eraseUiCharacter();
+                } else if (key == GLFW_KEY_ESCAPE) {
+                    session.blurUiInput();
+                } else if (key == GLFW_KEY_V && (mods & GLFW_MOD_CONTROL) != 0) {
+                    session.pasteUi(glfwGetClipboardString(handle));
+                }
                 return;
             }
             // 等待文本输入时键盘归输入框，否则全部作为事件回传
             if (session.inputPending()) {
                 if (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) {
-                    boolean ok = session.commitInput();
-                    com.xutrain.windowxpp.WindowXPP.LOGGER.info(
-                            "[WindowsX++] commitInput -> {}", ok
-                    );
+                    session.commitInput();
                 } else if (key == GLFW_KEY_BACKSPACE) {
                     session.eraseCharacter();
                 } else if (key == GLFW_KEY_ESCAPE) {
@@ -82,6 +88,12 @@ public final class ConsoleInput {
             }
         });
         glfwSetCharCallback(handle, (win, codepoint) -> {
+            if (session.uiInputFocused()) {
+                if (codepoint >= 0x20 && codepoint < 0x10000) {
+                    session.typeUiCharacter((char) codepoint);
+                }
+                return;
+            }
             if (codepoint >= 0x20 && codepoint < 0x10000) {
                 session.typeCharacter((char) codepoint);
             }
@@ -107,8 +119,23 @@ public final class ConsoleInput {
     private static void installMouse(long handle, CustomWindow window, ConsoleSession session) {
         glfwSetMouseButtonCallback(handle, (win, button, action, mods) -> {
             double[] position = cursorPosition(handle, window);
-            // 点击事件与选中互不影响，数据包没开启时这里什么都不做
+            // 先做 UI 命中，点中按钮或输入框就不再走终端选中与粘贴，label 只是展示不拦截
             if (action == GLFW_PRESS) {
+                UiElement element = session.uiAt(position[0], position[1]);
+                if (element != null) {
+                    if ("button".equals(element.type())) {
+                        session.blurUiInput();
+                        session.pressUi(element.id());
+                        return;
+                    }
+                    if ("input".equals(element.type())) {
+                        session.focusUiInput(element.id());
+                        return;
+                    }
+                }
+                // 点到 UI 之外或 label 上时把键盘还给终端，否则输入框只能靠 ESC 退出
+                session.blurUiInput();
+                // 点击事件与选中互不影响，数据包没开启时这里什么都不做
                 session.publishClick(
                         session.cellColumn(position[0]),
                         session.cellRow(position[1]),
@@ -122,6 +149,7 @@ public final class ConsoleInput {
                             session.cellRow(position[1])
                     );
                 } else if (action == GLFW_RELEASE) {
+                    session.releaseUi();
                     session.endSelection();
                 }
             } else if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {

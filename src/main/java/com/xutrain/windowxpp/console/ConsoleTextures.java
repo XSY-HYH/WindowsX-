@@ -37,7 +37,8 @@ public final class ConsoleTextures {
                 session.palette(),
                 session.selection(),
                 width,
-                height
+                height,
+                session.uiScene()
         );
         ByteBuffer data = session.nextPixelBuffer(width, height);
         // OpenGL 纹理原点在左下，图片原点在左上，逐行翻转

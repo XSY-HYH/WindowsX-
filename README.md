@@ -80,6 +80,32 @@ Text arguments accept `\e`, `\n` and `\r` escapes so ANSI sequences can be typed
 
 `@options` is a comma separated list. Window flags are `noshrink`, `nogrow` and `noclose`. Key-value pairs are `bg=#RRGGBB`.
 
+### Experimental UI elements
+
+`windowxpp`, `wxppui` and `wxui` are three names for the same command tree. Elements are drawn on top of a console window created by `windowsxc`.
+
+| Command | Description |
+| --- | --- |
+| `ui <console> add <id> button <x> <y> <width> <height> <bind> [label]` | Add a button |
+| `ui <console> add <id> input <x> <y> <width> <height> <bind> [placeholder]` | Add a text input |
+| `ui <console> add <id> label <x> <y> <width> <height> <text>` | Add a static label |
+| `ui <console> style <id> book` | Read the main hand book and quill as style lines |
+| `ui <console> style <id> @key=value,...` | Apply an inline style |
+| `ui <console> remove <id>` | Remove an element |
+| `ui <console> clear` | Remove every element of the console |
+| `ui <console> list` | List elements of the target players |
+| `var create <name> <string\|bool\|int>` | Create a per player variable |
+| `var set <name> <value>` | Set a variable |
+| `var get <name>` | Print a variable |
+| `var add <name> <delta>` | Add to an int variable |
+| `var toggle <name>` | Flip a bool variable |
+| `var remove <name>` | Delete a variable |
+| `var list` | List variables |
+
+Element coordinates are pixels inside the console window. Bindings are `-` for none, `#objective` for a scoreboard, and `$name` for a wxpp variable. A suffix selects the interaction mode: `/press` or `/toggle` on buttons, `/live` on inputs. Prefixes are parsed directly, so no quotes are needed.
+
+Style keys: `bg` `fg` `active-bg` `active-fg` `border` `border-width` `radius` `padding` `font` `bold` `align` `placeholder`. Colors accept `#RRGGBB`, `#AARRGGBB` and `white` `black` `gray` `red` `green` `blue` `yellow` `transparent`.
+
 ## Criteria
 
 `windowxpp:window_x`, `windowxpp:window_y`, `windowxpp:window_width`, `windowxpp:window_height`.

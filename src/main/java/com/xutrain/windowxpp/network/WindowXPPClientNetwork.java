@@ -2,6 +2,7 @@ package com.xutrain.windowxpp.network;
 
 import com.xutrain.windowxpp.WindowXPP;
 import com.xutrain.windowxpp.console.ConsoleClientHandler;
+import com.xutrain.windowxpp.console.UiClientHandler;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -136,6 +137,26 @@ public final class WindowXPPClientNetwork {
                 ConsolePayloads.Query.TYPE,
                 ConsolePayloads.Query.STREAM_CODEC,
                 ConsoleClientHandler::handleQuery
+        );
+        registrar.playToClient(
+                UiPayloads.Define.TYPE,
+                UiPayloads.Define.STREAM_CODEC,
+                UiClientHandler::handleDefine
+        );
+        registrar.playToClient(
+                UiPayloads.Remove.TYPE,
+                UiPayloads.Remove.STREAM_CODEC,
+                UiClientHandler::handleRemove
+        );
+        registrar.playToClient(
+                UiPayloads.Clear.TYPE,
+                UiPayloads.Clear.STREAM_CODEC,
+                UiClientHandler::handleClear
+        );
+        registrar.playToClient(
+                UiPayloads.Value.TYPE,
+                UiPayloads.Value.STREAM_CODEC,
+                UiClientHandler::handleValue
         );
     }
 }

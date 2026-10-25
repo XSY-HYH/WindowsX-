@@ -2,12 +2,17 @@ package com.xutrain.windowxpp.console;
 
 import com.xutrain.windowx.client.multiwindow.CustomWindow;
 import com.xutrain.windowxpp.network.ConsolePayloads;
+import com.xutrain.windowxpp.network.UiPayloads;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 // 一个控制台窗口及其终端状态
@@ -16,6 +21,7 @@ public final class ConsoleSession {
     // 2000 号字已经比 4K 屏还高，只是防住手滑输入的天文数字
     private static final int MAX_FONT_SIZE = 2000;
     private static final int MAX_INPUT_LENGTH = 256;
+    private static final int MAX_UI_INPUT_LENGTH = 256;
     // 程序设过尺寸后等这么多帧再允许按实际尺寸重排，避开系统的延迟调整
     private static final int SIZE_SETTLE_FRAMES = 5;
 
@@ -60,6 +66,11 @@ public final class ConsoleSession {
     private int renderedWindowHeight = -1;
     private final ByteBuffer[] pixelBuffers = new ByteBuffer[2];
     private int pixelBufferIndex;
+    // UI 元素按加入顺序叠放，后加的盖住先加的
+    private final Map<String, UiElement> uiElements = new LinkedHashMap<>();
+    private String pressedUiId = "";
+    private String focusedUiId = "";
+    private final StringBuilder uiInput = new StringBuilder();
 
     public ConsoleSession(UUID owner, String id, CustomWindow window, int fontSize, String flags, int background) {
         this.owner = owner;
@@ -474,6 +485,170 @@ public final class ConsoleSession {
             }
         }
         return text.toString().stripTrailing();
+    }
+
+    // 定义或更新一个 UI 元素，值变化时整体替换对象
+    public synchronized void defineUi(UiPayloads.Define payload) {
+        UiElement element = new UiElement(
+                payload.elementId(),
+                payload.elementType(),
+                payload.x(),
+                payload.y(),
+                payload.width(),
+                payload.height(),
+                payload.label(),
+                UiElement.parseStyle(payload.style()),
+                payload.value()
+        );
+        uiElements.put(element.id(), element);
+        if (element.id().equals(focusedUiId)) {
+            uiInput.setLength(0);
+            uiInput.append(element.value());
+        }
+        dirty = true;
+    }
+
+    public synchronized void removeUi(String elementId) {
+        uiElements.remove(elementId);
+        if (elementId.equals(focusedUiId)) {
+            focusedUiId = "";
+            uiInput.setLength(0);
+        }
+        if (elementId.equals(pressedUiId)) {
+            pressedUiId = "";
+        }
+        dirty = true;
+    }
+
+    public synchronized void clearUi() {
+        uiElements.clear();
+        focusedUiId = "";
+        pressedUiId = "";
+        uiInput.setLength(0);
+        dirty = true;
+    }
+
+    // 编辑中显示的是本地缓冲，服务端回值只更新底层值，不影响正在敲的字
+    public synchronized void setUiValue(String elementId, String value) {
+        UiElement element = uiElements.get(elementId);
+        if (element == null) {
+            return;
+        }
+        uiElements.put(elementId, element.withValue(value));
+        dirty = true;
+    }
+
+    public synchronized UiScene uiScene() {
+        return new UiScene(List.copyOf(uiElements.values()), focusedUiId, pressedUiId, uiInput.toString());
+    }
+
+    // 后加的元素在上层，命中测试从后往前找
+    public synchronized UiElement uiAt(double pixelX, double pixelY) {
+        List<UiElement> elements = new ArrayList<>(uiElements.values());
+        for (int index = elements.size() - 1; index >= 0; index--) {
+            UiElement element = elements.get(index);
+            if (element.contains(pixelX, pixelY)) {
+                return element;
+            }
+        }
+        return null;
+    }
+
+    public synchronized void pressUi(String elementId) {
+        UiElement element = uiElements.get(elementId);
+        if (element == null || !"button".equals(element.type())) {
+            return;
+        }
+        pressedUiId = elementId;
+        dirty = true;
+        sendToServer(new UiPayloads.Event(id, elementId, UiPayloads.ACTION_PRESS, ""));
+    }
+
+    // 鼠标松开时无论指针在哪都回传，按下态不会卡住
+    public synchronized void releaseUi() {
+        if (pressedUiId.isEmpty()) {
+            return;
+        }
+        String elementId = pressedUiId;
+        pressedUiId = "";
+        dirty = true;
+        sendToServer(new UiPayloads.Event(id, elementId, UiPayloads.ACTION_RELEASE, ""));
+    }
+
+    public synchronized boolean uiInputFocused() {
+        return !focusedUiId.isEmpty();
+    }
+
+    public synchronized void focusUiInput(String elementId) {
+        UiElement element = uiElements.get(elementId);
+        if (element == null || !"input".equals(element.type())) {
+            return;
+        }
+        focusedUiId = elementId;
+        uiInput.setLength(0);
+        uiInput.append(element.value());
+        dirty = true;
+    }
+
+    public synchronized void typeUiCharacter(char character) {
+        if (focusedUiId.isEmpty() || uiInput.length() >= MAX_UI_INPUT_LENGTH) {
+            return;
+        }
+        uiInput.append(character);
+        dirty = true;
+        publishUiLive();
+    }
+
+    public synchronized void eraseUiCharacter() {
+        if (focusedUiId.isEmpty() || uiInput.length() == 0) {
+            return;
+        }
+        uiInput.deleteCharAt(uiInput.length() - 1);
+        dirty = true;
+        publishUiLive();
+    }
+
+    public synchronized void pasteUi(String text) {
+        if (focusedUiId.isEmpty() || text == null) {
+            return;
+        }
+        int limit = Math.min(text.length(), MAX_UI_INPUT_LENGTH - uiInput.length());
+        boolean changed = false;
+        for (int index = 0; index < limit; index++) {
+            char character = text.charAt(index);
+            if (character < 0x20 || character == 0x7F) {
+                continue;
+            }
+            uiInput.append(character);
+            changed = true;
+        }
+        if (changed) {
+            dirty = true;
+            publishUiLive();
+        }
+    }
+
+    private void publishUiLive() {
+        sendToServer(new UiPayloads.Event(id, focusedUiId, UiPayloads.ACTION_LIVE, uiInput.toString()));
+    }
+
+    public synchronized void commitUiInput() {
+        if (focusedUiId.isEmpty()) {
+            return;
+        }
+        String elementId = focusedUiId;
+        String text = uiInput.toString();
+        focusedUiId = "";
+        dirty = true;
+        sendToServer(new UiPayloads.Event(id, elementId, UiPayloads.ACTION_SUBMIT, text));
+    }
+
+    public synchronized void blurUiInput() {
+        if (focusedUiId.isEmpty()) {
+            return;
+        }
+        focusedUiId = "";
+        dirty = true;
     }
 
     // 鼠标像素坐标换算成字符格
